@@ -1,0 +1,54 @@
+name: Push to Public Repo and Create PR
+
+on:
+  push:
+    branches:
+      - public
+
+jobs:
+  push_to_public:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+        with:
+          ref: public
+
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+      - name: Configure Git Identity
+        run: |
+          git config --global user.name "Delegators"
+          git config --global user.email "hellogators@consensys.net"
+
+      - name: Checkout main branch from public repo
+        run: |
+          git remote add public-repo git@github.com:MetaMask/hello-gator.git
+          git fetch public-repo
+          git checkout -b public-main public-repo/main
+
+      - name: Restore from public branch
+        run: |
+          git restore --source=origin/public --worktree --staged .
+
+      - name: Commit changes to updates branch
+        run: |
+          git checkout -b updates
+          git commit -m "Sync public branch with internal repository"
+
+      - name: Push updates branch to public repo
+        run: |
+          git push public-repo updates
+
+      # the PR is on the public hello-gator repo, so we need to figure out how to get permissions
+
+#      - name: Create Pull Request
+#        run: |
+#          gh auth login --with-token <<< "${{ secrets.GITHUB_TOKEN }}"
+#          gh pr create --base public --head updates --repo MetaMask/hello-gator --title "Sync updates from internal public branch" --body "This PR syncs the public branch with the latest changes from the internal repository."
