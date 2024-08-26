@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { http } from "viem";
+import { http, toHex } from "viem";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import { sepolia as chain } from "viem/chains";
 import {
@@ -12,16 +12,27 @@ import {
   createBundlerClient,
   createRootDelegation,
   createAction,
+  getExplorerAddressLink,
+  getExplorerTransactionLink,
   type DeleGatorClient,
   type DelegationStruct,
   type UserOperationV07,
-  getExplorerAddressLink,
-  getExplorerTransactionLink,
 } from "@codefi/delegator-core-viem";
+import { randomBytes } from "crypto";
+import {
+  type SignatoryFactoryName,
+  useSelectedSignatory,
+} from "./useSelectedSignatory";
+import { WEB3AUTH_NETWORK_TYPE } from "@web3auth/base";
 
-const SALT = "0x1";
 const PIMLICO_PAYMASTER_KEY = process.env.NEXT_PUBLIC_PAYMASTER_API_KEY!;
 const BUNDLER_URL = process.env.NEXT_PUBLIC_BUNDLER_URL!;
+const WEB3_AUTH_CLIENT_ID = process.env.NEXT_PUBLIC_WEB3_CLIENT_ID!;
+const WEB3_AUTH_NETWORK = process.env
+  .NEXT_PUBLIC_WEB3_AUTH_NETWORK! as WEB3AUTH_NETWORK_TYPE;
+const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL!;
+
+const createSalt = () => toHex(randomBytes(8));
 
 const createCounterfactualDelegatorClient = () => {
   const privateKey = generatePrivateKey();
@@ -35,7 +46,7 @@ const createCounterfactualDelegatorClient = () => {
       deployParams: [owner.address, [], [], []],
       isAccountDeployed: false,
       signatory: owner,
-      deploySalt: SALT,
+      deploySalt: createSalt(),
     },
   });
 
@@ -94,6 +105,14 @@ function App() {
   const [isDelegateDeploymentStarted, setIsDelegateDeploymentStarted] =
     useState(false);
 
+  const { selectedSignatory, setSelectedSignatoryName, selectedSignatoryName } =
+    useSelectedSignatory({
+      chain,
+      web3AuthClientId: WEB3_AUTH_CLIENT_ID,
+      web3AuthNetwork: WEB3_AUTH_NETWORK,
+      rpcUrl: RPC_URL,
+    });
+
   const bundler = createBundlerClient(BUNDLER_URL);
   const paymaster = PimlicoVerifyingPaymasterSponsor({
     pimlicoAPIKey: PIMLICO_PAYMASTER_KEY,
@@ -102,6 +121,9 @@ function App() {
     pimlicoAPIKey: PIMLICO_PAYMASTER_KEY,
     inclusionSpeed: "fast",
   });
+
+  const isValidSignatorySelected =
+    selectedSignatory && !selectedSignatory.isDisabled;
 
   const canDeployDelegatorAccount =
     delegatorClient && !isDelegatorDeploymentStarted;
@@ -113,14 +135,54 @@ function App() {
     delegation?.signature !== undefined &&
     delegation?.signature !== "0x"
   );
+  const canLogout = isValidSignatorySelected && selectedSignatory.canLogout();
 
   useEffect(() => {
     const viemClient = createCounterfactualDelegatorClient();
     setDelegateClient(viemClient);
   }, []);
 
-  const handleCreateDelegator = () => {
-    const viemClient = createCounterfactualDelegatorClient();
+  const handleSignatoryChange = (ev: any) => {
+    const signatoryName = ev.target.value as SignatoryFactoryName;
+    setSelectedSignatoryName(signatoryName);
+
+    setDelegatorClient(undefined);
+    setIsDelegatorDeploymentStarted(false);
+    setUserOp(undefined);
+    setUserOpExplorerUrl(undefined);
+    setDelegation(undefined);
+  };
+
+  const handleLogout = async () => {
+    if (!canLogout) {
+      return;
+    }
+    await selectedSignatory!.logout!();
+
+    setDelegatorClient(undefined);
+    setIsDelegatorDeploymentStarted(false);
+    setUserOp(undefined);
+    setUserOpExplorerUrl(undefined);
+    setDelegation(undefined);
+  };
+
+  const handleCreateDelegator = async () => {
+    if (selectedSignatory === undefined) {
+      throw new Error("Delegator factory not set");
+    }
+
+    const { owner, signatory } = await selectedSignatory.login();
+    const viemClient = createDeleGatorClient({
+      transport: http(),
+      chain,
+      account: {
+        implementation: Implementation.Hybrid,
+        deployParams: [owner, [], [], []],
+        isAccountDeployed: false,
+        signatory,
+        deploySalt: createSalt(),
+      },
+    });
 
     setDelegatorClient(viemClient);
     setIsDelegatorDeploymentStarted(false);
@@ -247,7 +309,9 @@ function App() {
       <p>
         In the following example, two DeleGator accounts are created (the
         "delegate" in the background when the page loads and the "delegator"
-        when the "Create DeleGator Account" is pressed).
+        when the "Create DeleGator Account" is pressed). Note: a random salt is
+        used each time an account is created, so even if you've deployed one in
+        the past, a new one will be created.
       </p>
       <p>
         Full control is then delegated from the "delegator" to the "delegate",
@@ -263,7 +327,20 @@ function App() {
         account has no balance). This is sent to the bundler, via a signed User
         Operation, where it is settled on-chain.
       </p>
-      <button onClick={handleCreateDelegator}>
+      <label>Signatory:</label>{" "}
+      <select onChange={handleSignatoryChange} value={selectedSignatoryName}>
+        <option value="burnerSignatoryFactory">Burner private key</option>
+        <option value="injectedProviderSignatoryFactory">
+          Injected provider
+        </option>
+        <option value="web3AuthSignatoryFactory">Web3Auth</option>
+      </select>
+      {canLogout && <button onClick={handleLogout}>Logout</button>}
+      <br />
+      <button
+        onClick={handleCreateDelegator}
+        disabled={!isValidSignatorySelected}
+      >
         Create "delegator" Account
       </button>{" "}
       <button

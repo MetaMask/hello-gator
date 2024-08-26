@@ -10,11 +10,13 @@
   },
   "dependencies": {
     "@codefi/delegator-core-viem": "0.1.1",
+    "@web3auth/base": "^8.12.2",
+    "@web3auth/ethereum-provider": "^8.12.3",
+    "@web3auth/modal": "^8.12.3",
     "next": "13.5.3",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "viem": "latest",
-    "wagmi": "latest"
+    "viem": "latest"
   },
   "devDependencies": {
     "@types/node": "^20.7.2",
