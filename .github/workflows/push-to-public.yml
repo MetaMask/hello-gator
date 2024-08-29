@@ -46,9 +46,18 @@ jobs:
         run: |
           git push public-repo updates
 
-      # the PR is on the public hello-gator repo, so we need to figure out how to get permissions
+      - name: Fetch all branches
+        run: git fetch --all
 
-#      - name: Create Pull Request
-#        run: |
-#          gh auth login --with-token <<< "${{ secrets.GITHUB_TOKEN }}"
-#          gh pr create --base public --head updates --repo MetaMask/hello-gator --title "Sync updates from internal public branch" --body "This PR syncs the public branch with the latest changes from the internal repository."
+      - name: Create local branches
+        run: |
+          git checkout -b main origin/main
+
+      - name: Create changelog
+        run: |
+          git log --merges --oneline main ^public --pretty=format:"-%s: %b" > changelog.txt
+
+      - name: Create Pull Request
+        run: |
+          gh auth login --with-token <<< "${{ secrets.PR_TOKEN }}"
+          gh pr create --base main --head updates --repo MetaMask/hello-gator --title "Sync updates from internal public branch" --body "$(cat changelog.txt)"
