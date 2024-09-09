@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { http, toHex } from "viem";
+import { useState } from "react";
+import { http } from "viem";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import { sepolia as chain } from "viem/chains";
 import {
@@ -10,235 +10,68 @@ import {
   PimlicoVerifyingPaymasterSponsor,
   PimlicoGasFeeResolver,
   createBundlerClient,
-  createRootDelegation,
   createAction,
+  type DeleGatorClient,
+  UserOperationReceiptResponse,
   getExplorerAddressLink,
   getExplorerTransactionLink,
-  type DeleGatorClient,
-  type DelegationStruct,
-  type UserOperationV07,
 } from "@codefi/delegator-core-viem";
-import { randomBytes } from "crypto";
-import {
-  type SignatoryFactoryName,
-  useSelectedSignatory,
-} from "./useSelectedSignatory";
-import { WEB3AUTH_NETWORK_TYPE } from "@web3auth/base";
 
-const PIMLICO_PAYMASTER_KEY = process.env.NEXT_PUBLIC_PAYMASTER_API_KEY!;
 const BUNDLER_URL = process.env.NEXT_PUBLIC_BUNDLER_URL!;
-const WEB3_AUTH_CLIENT_ID = process.env.NEXT_PUBLIC_WEB3_CLIENT_ID!;
-const WEB3_AUTH_NETWORK = process.env
-  .NEXT_PUBLIC_WEB3_AUTH_NETWORK! as WEB3AUTH_NETWORK_TYPE;
-const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL!;
+const PIMLICO_PAYMASTER_KEY = process.env.NEXT_PUBLIC_PAYMASTER_API_KEY!;
 
-const createSalt = () => toHex(randomBytes(8));
-
-const createCounterfactualDelegatorClient = () => {
-  const privateKey = generatePrivateKey();
-  const owner = privateKeyToAccount(privateKey);
-
-  const viemClient = createDeleGatorClient({
-    transport: http(),
-    chain,
-    account: {
-      implementation: Implementation.Hybrid,
-      deployParams: [owner.address, [], [], []],
-      isAccountDeployed: false,
-      signatory: owner,
-      deploySalt: createSalt(),
-    },
-  });
-
-  return viemClient;
-};
-
-const formatJSON = (value: any) => {
-  if (value === null || value === undefined) {
-    return "NA";
-  }
-
-  return JSON.stringify(
-    value,
-    (_, v) => (typeof v === "bigint" ? `${v.toString()}n` : v),
-    2
-  );
-};
-
-function DeleGatorAccount({
-  client,
-  isDeploying,
-}: {
-  client: DeleGatorClient | undefined;
-  isDeploying: boolean;
-}) {
-  if (!client) {
-    return "NA";
-  }
-  const status = client.account.isAccountDeployed
-    ? "deployed"
-    : isDeploying
-      ? "deployment in progress"
-      : "counterfactual";
-
-  const explorerUrl = getExplorerAddressLink(chain.id, client.account.address);
-
-  return (
-    <>
-      {client.account.address} -{" "}
-      <a href={explorerUrl} target="_blank">
-        {status}
-      </a>
-    </>
-  );
-}
+import examples from "@/app/examples";
+import Hero from "../components/Hero";
 
 function App() {
-  const [delegateClient, setDelegateClient] = useState<DeleGatorClient>();
-  const [delegatorClient, setDelegatorClient] = useState<DeleGatorClient>();
+  const [delegator, setDelegator] = useState<DeleGatorClient>();
+  const [isDeploying, setIsDeploying] = useState(false);
+  const [userOperationReceipt, setUserOperationReceipt] =
+    useState<UserOperationReceiptResponse>();
 
-  const [delegation, setDelegation] = useState<DelegationStruct>();
-  const [userOp, setUserOp] = useState<UserOperationV07>();
-  const [userOpExplorerUrl, setUserOpExplorerUrl] = useState<string>();
-  const [isDelegatorDeploymentStarted, setIsDelegatorDeploymentStarted] =
-    useState(false);
-  const [isDelegateDeploymentStarted, setIsDelegateDeploymentStarted] =
-    useState(false);
-
-  const { selectedSignatory, setSelectedSignatoryName, selectedSignatoryName } =
-    useSelectedSignatory({
-      chain,
-      web3AuthClientId: WEB3_AUTH_CLIENT_ID,
-      web3AuthNetwork: WEB3_AUTH_NETWORK,
-      rpcUrl: RPC_URL,
-    });
-
-  const bundler = createBundlerClient(BUNDLER_URL);
-  const paymaster = PimlicoVerifyingPaymasterSponsor({
-    pimlicoAPIKey: PIMLICO_PAYMASTER_KEY,
-  });
   const gasFeeResolver = PimlicoGasFeeResolver({
     pimlicoAPIKey: PIMLICO_PAYMASTER_KEY,
     inclusionSpeed: "fast",
   });
 
-  const isValidSignatorySelected =
-    selectedSignatory && !selectedSignatory.isDisabled;
+  const paymaster = PimlicoVerifyingPaymasterSponsor({
+    pimlicoAPIKey: PIMLICO_PAYMASTER_KEY,
+  });
 
-  const canDeployDelegatorAccount =
-    delegatorClient && !isDelegatorDeploymentStarted;
-  const canCreateDelegation = !!(delegateClient && delegatorClient);
-  const canSignDelegation = !!(delegatorClient && delegation);
-  const canRedeemDelegation = !!(
-    delegatorClient?.account.isAccountDeployed &&
-    delegateClient &&
-    delegation?.signature !== undefined &&
-    delegation?.signature !== "0x"
-  );
-  const canLogout = isValidSignatorySelected && selectedSignatory.canLogout();
+  function handleCreateDelegator() {
+    const privateKey = generatePrivateKey();
+    const owner = privateKeyToAccount(privateKey);
 
-  useEffect(() => {
-    const viemClient = createCounterfactualDelegatorClient();
-    setDelegateClient(viemClient);
-  }, []);
-
-  const handleSignatoryChange = (ev: any) => {
-    const signatoryName = ev.target.value as SignatoryFactoryName;
-    setSelectedSignatoryName(signatoryName);
-
-    setDelegatorClient(undefined);
-    setIsDelegatorDeploymentStarted(false);
-    setUserOp(undefined);
-    setUserOpExplorerUrl(undefined);
-    setDelegation(undefined);
-  };
-
-  const handleLogout = async () => {
-    if (!canLogout) {
-      return;
-    }
-    await selectedSignatory!.logout!();
-
-    setDelegatorClient(undefined);
-    setIsDelegatorDeploymentStarted(false);
-    setUserOp(undefined);
-    setUserOpExplorerUrl(undefined);
-    setDelegation(undefined);
-  };
-
-  const handleCreateDelegator = async () => {
-    if (selectedSignatory === undefined) {
-      throw new Error("Delegator factory not set");
-    }
-
-    const { owner, signatory } = await selectedSignatory.login();
-    const viemClient = createDeleGatorClient({
+    const delegatorClient = createDeleGatorClient({
       transport: http(),
       chain,
       account: {
         implementation: Implementation.Hybrid,
-        deployParams: [owner, [], [], []],
+        deployParams: [owner.address, [], [], []],
         isAccountDeployed: false,
-        signatory,
-        deploySalt: createSalt(),
+        signatory: owner,
+        deploySalt: "0x1",
       },
     });
 
-    setDelegatorClient(viemClient);
-    setIsDelegatorDeploymentStarted(false);
-    setUserOp(undefined);
-    setUserOpExplorerUrl(undefined);
-    setDelegation(undefined);
-  };
+    setDelegator(delegatorClient);
+  }
 
-  const handleDeployDelegator = async () => {
-    if (!canDeployDelegatorAccount) {
+  async function handleDeployDelegator() {
+    setIsDeploying(true);
+    if (!delegator) {
       return;
     }
 
-    setIsDelegatorDeploymentStarted(true);
-
+    const bundler = createBundlerClient(BUNDLER_URL);
     const action = createAction("0x0000000000000000000000000000000000000000");
-    const unsponsoredUserOp = await delegatorClient.createExecuteUserOp(
+    const unsponsoredUserOp = await delegator.createExecuteUserOp(
       action,
       await gasFeeResolver.determineGasFee(chain)
     );
 
-    await sponsorAndSubmitUserOp(delegatorClient, unsponsoredUserOp);
-
-    if (!delegatorClient.account.isAccountDeployed) {
-      setDelegatorClient(delegatorClient.toDeployedClient());
-    }
-  };
-
-  const handleCreateDelegation = () => {
-    if (!canCreateDelegation) {
-      return;
-    }
-
-    const newDelegation = createRootDelegation(
-      delegateClient.account.address,
-      delegatorClient.account.address
-    );
-
-    setDelegation(newDelegation);
-  };
-
-  const handleSignDelegation = async () => {
-    if (!canSignDelegation) {
-      return;
-    }
-
-    const signedDelegation = await delegatorClient.signDelegation(delegation);
-    setDelegation(signedDelegation);
-  };
-
-  const sponsorAndSubmitUserOp = async (
-    client: DeleGatorClient,
-    unsponsoredUserOp: UserOperationV07
-  ) => {
     const sponsorship = await paymaster.getUserOperationSponsorship(
-      client.account.environment.EntryPoint,
+      delegator.account.environment.EntryPoint,
       chain,
       unsponsoredUserOp
     );
@@ -248,139 +81,127 @@ function App() {
       ...sponsorship,
     };
 
-    const userOp = await client.signUserOp(unsignedUserOp);
+    const userOp = await delegator.signUserOp(unsignedUserOp);
 
     const { result: hash } = await bundler.sendUserOp(
       userOp,
-      client.account.environment.EntryPoint
+      delegator.account.environment.EntryPoint
     );
 
-    const { result: userOperationReceipt } = await bundler.pollForReceipt(hash);
+    const { result } = await bundler.pollForReceipt(hash);
 
-    if (!userOperationReceipt.success) {
-      throw new Error(`UserOperation failed: ${userOperationReceipt.reason}`);
+    if (!result.success) {
+      throw new Error(`UserOperation failed: ${result.reason}`);
     }
 
-    return {
-      userOperationReceipt,
-      userOp,
-    };
-  };
-
-  const handleRedeemDelegation = async () => {
-    if (!canRedeemDelegation) {
-      return;
-    }
-
-    const action = createAction(delegateClient.account.address);
-
-    const unsponsoredUserOp = await delegateClient.createRedeemDelegationUserOp(
-      [delegation],
-      action,
-      await gasFeeResolver.determineGasFee(chain)
-    );
-    setUserOp(unsponsoredUserOp);
-
-    if (!delegateClient.account.isAccountDeployed) {
-      // if the account is already deployed, isDelegateDeploymentStarted is already true anyway
-      setIsDelegateDeploymentStarted(true);
-    }
-
-    const { userOp, userOperationReceipt } = await sponsorAndSubmitUserOp(
-      delegateClient,
-      unsponsoredUserOp
-    );
-
-    setUserOp(userOp);
-
-    setDelegateClient(delegateClient.toDeployedClient());
-
-    const explorerUrl = getExplorerTransactionLink(
-      chain.id,
-      userOperationReceipt.receipt.transactionHash
-    );
-
-    setUserOpExplorerUrl(explorerUrl);
-  };
+    setIsDeploying(false);
+    setUserOperationReceipt(result);
+  }
 
   return (
-    <div style={{ margin: "auto", width: "50%" }}>
-      <h1>Viem Client Quickstart</h1>
-      <p>
-        In the following example, two DeleGator accounts are created (the
-        "delegate" in the background when the page loads and the "delegator"
-        when the "Create DeleGator Account" is pressed). Note: a random salt is
-        used each time an account is created, so even if you've deployed one in
-        the past, a new one will be created.
-      </p>
-      <p>
-        Full control is then delegated from the "delegator" to the "delegate",
-        via a signed Delegation.
-      </p>
-      <p>
-        Before the Delegation can be used, the "delegator" account must be
-        deployed. The "delegate" may be deployed as part of the UserOp used to
-        redeem the delegation.
-      </p>
-      <p>
-        The "delegate" then invokes this delegation to transfer 0 ETH (given the
-        account has no balance). This is sent to the bundler, via a signed User
-        Operation, where it is settled on-chain.
-      </p>
-      <label>Signatory:</label>{" "}
-      <select onChange={handleSignatoryChange} value={selectedSignatoryName}>
-        <option value="burnerSignatoryFactory">Burner private key</option>
-        <option value="injectedProviderSignatoryFactory">
-          Injected provider
-        </option>
-        <option value="web3AuthSignatoryFactory">Web3Auth</option>
-      </select>
-      {canLogout && <button onClick={handleLogout}>Logout</button>}
-      <br />
-      <button
-        onClick={handleCreateDelegator}
-        disabled={!isValidSignatorySelected}
-      >
-        Create "delegator" Account
-      </button>{" "}
-      <button
-        onClick={handleDeployDelegator}
-        disabled={!canDeployDelegatorAccount}
-      >
-        Deploy "delegator" Account
-      </button>
-      <h3>Accounts:</h3>
-      <pre style={{ overflow: "auto" }}>
-        Delegate:{" "}
-        <DeleGatorAccount
-          client={delegateClient}
-          isDeploying={isDelegateDeploymentStarted}
-        />
-        <br />
-        Delegator:{" "}
-        <DeleGatorAccount
-          client={delegatorClient}
-          isDeploying={isDelegatorDeploymentStarted}
-        />
-      </pre>
-      <button onClick={handleCreateDelegation} disabled={!canCreateDelegation}>
-        Create Delegation
-      </button>{" "}
-      <button onClick={handleSignDelegation} disabled={!canSignDelegation}>
-        Sign Delegation
-      </button>
-      <h3>Delegation:</h3>
-      <pre style={{ overflow: "auto" }}>{formatJSON(delegation)}</pre>
-      <button onClick={handleRedeemDelegation} disabled={!canRedeemDelegation}>
-        Redeem Delegation
-      </button>
-      <h3>UserOp:</h3>
-      {userOpExplorerUrl && (
-        <a href={userOpExplorerUrl} target="_blank">
-          view transaction
+    <div className="mx-auto">
+      <Hero />
+      <h2 className="text-2xl font-bold mb-4">Overview</h2>
+      <p className="mb-4">
+        A basic template to get you started with the{" "}
+        <a
+          className="text-green-500"
+          href="https://metamask.io/developer/delegation-toolkit/"
+          target="_blank"
+        >
+          Delegation Toolkit
         </a>
+        . It includes a collection of self contained examples (selectable via
+        the dropdown in the top-right or via the cards below) which can simply
+        be deleted if you're using this as a scaffold for a new project.
+      </p>
+      <h2 className="text-2xl font-bold mb-4">
+        Hello <span className="line-through">World</span>{" "}
+        <span className="bg-clip-text text-transparent bg-gradient-to-b from-white to-green-500">
+          Gator
+        </span>
+      </h2>
+      <p className="mb-4">
+        Click the following to create a new Delegator account.
+      </p>
+      <button
+        className="bg-white text-black rounded-md px-2 py-1 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-200"
+        onClick={handleCreateDelegator}
+        disabled={!!delegator}
+      >
+        Create Delegator Account
+      </button>
+      <p className="mb-4" style={{ overflow: "auto" }}>
+        {delegator ? (
+          <a
+            href={getExplorerAddressLink(chain.id, delegator.account.address)}
+            className="text-green-500"
+            target="_blank"
+          >
+            {userOperationReceipt && <span className="inline-block animate-ping mr-2">🐊</span>}
+            {delegator.account.address}
+            {userOperationReceipt && <span className="inline-block animate-ping ml-2">🐊</span>}
+          </a>
+        ) : (
+          "NA"
+        )}
+        {isDeploying && (
+          <span>
+            {" "}
+            <span className="inline-block animate-spin">🐊</span> Deploying{" "}
+            <span className="inline-block animate-spin">🐊</span>
+          </span>
+        )}
+      </p>
+      {delegator && !userOperationReceipt && (
+        <div>
+          <p className="mb-4">
+            Nice! You've just created a counterfactual (meaning it's not yet
+            deployed on chain) Delegator account. Click below to deploy it via a
+            pre-configured bundler.
+          </p>
+          <button
+            className="bg-white text-black rounded-md px-2 py-1 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-200"
+            onClick={handleDeployDelegator}
+            disabled={isDeploying || !delegator}
+          >
+            Deploy Delegator Account
+          </button>
+        </div>
       )}
-      <pre style={{ overflow: "auto" }}>{formatJSON(userOp)}</pre>
+      {userOperationReceipt && (
+        <p className="mb-4">
+          <a
+            className="text-green-500"
+            href={getExplorerTransactionLink(
+              chain.id,
+              userOperationReceipt.receipt.transactionHash
+            )}
+            target="_blank"
+          >
+            Done!{" "}
+          </a>
+          Click on the address above to check it out. Now feel free to try out
+          some of the examples below to see what else you can do with the
+          Delegation Toolkit.
+        </p>
+      )}
+
+      <h2 className="text-2xl font-bold mb-4">Examples</h2>
+      <div className="flex flex-wrap gap-4 mb-4">
+        {examples.map((e, i) => {
+          return (
+            <a
+              href={`/examples/${e.path}`}
+              className="text-decoration-none bg-[rgb(36,41,46)] w-full sm:w-[calc(50%-0.5rem)] lg:w-[calc(33.333%-0.667rem)] px-5 py-2.5 text-white hover:bg-[rgb(41,46,51)] hover:text-gray-300 transition duration-200 transform hover:scale-105"
+              key={i}
+            >
+              <h3>{e.name}</h3>
+              <p>{e.description}</p>
+            </a>
+          );
+        })}
+      </div>
     </div>
   );
 }

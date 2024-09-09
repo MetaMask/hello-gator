@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  p {
+    @apply my-p;
+  }
+  h2 {
+    @apply text-h2 font-h2 my-h2;
+  }
+  h3 {
+    @apply text-h3 font-h3 my-h3;
+  }
+}
+
+@font-face {
+  font-family: 'Euclid Circular B';
+  font-style: normal;
+  font-weight: 400;
+  src: url('../fonts/Euclid/EuclidCircularB-Regular-WebXL.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Euclid Circular B';
+  font-style: normal;
+  font-weight: 500;
+  src: url('../fonts/Euclid/EuclidCircularB-Medium.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Euclid Circular B';
+  font-style: normal;
+  font-weight: 700;
+  src: url('../fonts/Euclid/EuclidCircularB-Bold-WebXL.ttf') format('truetype');
+}
+
+:root {
+  background-color: rgb(18, 18, 18);
+  color: rgba(255, 255, 255, 0.87);
+  color-scheme: light dark;
+  font-family: "Euclid Circular B", sans-serif;
+  font-synthesis: none;
+  font-weight: 400;
+  line-height: 1.5;
+  text-rendering: optimizeLegibility;
+
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+}
