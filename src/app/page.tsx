@@ -1,101 +1,105 @@
 "use client";
 
 import { useState } from "react";
-import { http } from "viem";
+import { createPublicClient, http, zeroAddress } from "viem";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import { sepolia as chain } from "viem/chains";
 import {
   Implementation,
-  createDeleGatorClient,
-  PimlicoVerifyingPaymasterSponsor,
-  PimlicoGasFeeResolver,
-  createBundlerClient,
-  createAction,
-  type DeleGatorClient,
-  UserOperationReceiptResponse,
-  getExplorerAddressLink,
-  getExplorerTransactionLink,
+  toMetaMaskSmartAccount,
+  type MetaMaskSmartAccount,
 } from "@codefi/delegator-core-viem";
+import {
+  createBundlerClient,
+  createPaymasterClient,
+  UserOperationReceipt,
+} from "viem/account-abstraction";
+import { createPimlicoClient } from "permissionless/clients/pimlico";
 
 const BUNDLER_URL = process.env.NEXT_PUBLIC_BUNDLER_URL!;
-const PIMLICO_PAYMASTER_KEY = process.env.NEXT_PUBLIC_PAYMASTER_API_KEY!;
+const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL!;
+// if this is undefined, the API_KEY must be configured to Enable verifying paymaster
+const PAYMASTER_POLICY_ID = process.env.NEXT_PUBLIC_PAYMASTER_POLICY_ID;
 
 import examples from "@/app/examples";
 import Hero from "../components/Hero";
 
 function App() {
-  const [delegator, setDelegator] = useState<DeleGatorClient>();
+  const [delegatorSmartAccount, setDelegatorSmartAccount] =
+    useState<MetaMaskSmartAccount<Implementation.Hybrid>>();
   const [isDeploying, setIsDeploying] = useState(false);
   const [userOperationReceipt, setUserOperationReceipt] =
-    useState<UserOperationReceiptResponse>();
+    useState<UserOperationReceipt>();
 
-  const gasFeeResolver = PimlicoGasFeeResolver({
-    pimlicoAPIKey: PIMLICO_PAYMASTER_KEY,
-    inclusionSpeed: "fast",
+  const publicClient = createPublicClient({
+    chain,
+    transport: http(RPC_URL),
   });
 
-  const paymaster = PimlicoVerifyingPaymasterSponsor({
-    pimlicoAPIKey: PIMLICO_PAYMASTER_KEY,
+  const paymasterContext = PAYMASTER_POLICY_ID
+    ? {
+        sponsorshipPolicyId: PAYMASTER_POLICY_ID,
+      }
+    : undefined;
+
+  const pimlicoClient = createPimlicoClient({
+    transport: http(BUNDLER_URL),
   });
 
-  function handleCreateDelegator() {
+  const paymasterClient = createPaymasterClient({
+    transport: http(BUNDLER_URL),
+  });
+
+  const bundlerClient = createBundlerClient({
+    transport: http(BUNDLER_URL),
+    paymaster: paymasterClient,
+    chain,
+    paymasterContext,
+  });
+
+  async function handleCreateDelegator() {
     const privateKey = generatePrivateKey();
     const owner = privateKeyToAccount(privateKey);
 
-    const delegatorClient = createDeleGatorClient({
-      transport: http(),
-      chain,
-      account: {
-        implementation: Implementation.Hybrid,
-        deployParams: [owner.address, [], [], []],
-        isAccountDeployed: false,
-        signatory: owner,
-        deploySalt: "0x1",
-      },
+    const deploySalt = "0x";
+
+    const smartaccount = await toMetaMaskSmartAccount({
+      client: publicClient,
+      implementation: Implementation.Hybrid,
+      deployParams: [owner.address, [], [], []],
+      deploySalt,
+      signatory: { account: owner },
     });
 
-    setDelegator(delegatorClient);
+    setDelegatorSmartAccount(smartaccount);
   }
 
   async function handleDeployDelegator() {
     setIsDeploying(true);
-    if (!delegator) {
+    if (!delegatorSmartAccount) {
       return;
     }
 
-    const bundler = createBundlerClient(BUNDLER_URL);
-    const action = createAction("0x0000000000000000000000000000000000000000");
-    const unsponsoredUserOp = await delegator.createExecuteUserOp(
-      action,
-      await gasFeeResolver.determineGasFee(chain)
-    );
+    // we use a bespoke pimlico client to get the gas price specified by the bundler,
+    // as there is no standard way to do this
+    const { fast: fees } = await pimlicoClient.getUserOperationGasPrice();
 
-    const sponsorship = await paymaster.getUserOperationSponsorship(
-      delegator.account.environment.EntryPoint,
-      chain,
-      unsponsoredUserOp
-    );
+    const userOpHash = await bundlerClient.sendUserOperation({
+      account: delegatorSmartAccount,
+      calls: [
+        {
+          to: zeroAddress,
+        },
+      ],
+      ...fees,
+    });
 
-    const unsignedUserOp = {
-      ...unsponsoredUserOp,
-      ...sponsorship,
-    };
-
-    const userOp = await delegator.signUserOp(unsignedUserOp);
-
-    const { result: hash } = await bundler.sendUserOp(
-      userOp,
-      delegator.account.environment.EntryPoint
-    );
-
-    const { result } = await bundler.pollForReceipt(hash);
-
-    if (!result.success) {
-      throw new Error(`UserOperation failed: ${result.reason}`);
-    }
+    const receipt = await bundlerClient.waitForUserOperationReceipt({
+      hash: userOpHash,
+    });
 
     setIsDeploying(false);
-    setUserOperationReceipt(result);
+    setUserOperationReceipt(receipt);
   }
 
   return (
@@ -127,20 +131,24 @@ function App() {
       <button
         className="bg-white text-black rounded-md px-2 py-1 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-200"
         onClick={handleCreateDelegator}
-        disabled={!!delegator}
+        disabled={!!delegatorSmartAccount}
       >
         Create Delegator Account
       </button>
       <p className="mb-4" style={{ overflow: "auto" }}>
-        {delegator ? (
+        {delegatorSmartAccount ? (
           <a
-            href={getExplorerAddressLink(chain.id, delegator.account.address)}
+            href={`https://sepolia.etherscan.io/address/${delegatorSmartAccount.address}`}
             className="text-green-500"
             target="_blank"
           >
-            {userOperationReceipt && <span className="inline-block animate-ping mr-2">🐊</span>}
-            {delegator.account.address}
-            {userOperationReceipt && <span className="inline-block animate-ping ml-2">🐊</span>}
+            {userOperationReceipt && (
+              <span className="inline-block animate-ping mr-2">🐊</span>
+            )}
+            {delegatorSmartAccount.address}
+            {userOperationReceipt && (
+              <span className="inline-block animate-ping ml-2">🐊</span>
+            )}
           </a>
         ) : (
           "NA"
@@ -153,7 +161,7 @@ function App() {
           </span>
         )}
       </p>
-      {delegator && !userOperationReceipt && (
+      {delegatorSmartAccount && !userOperationReceipt && (
         <div>
           <p className="mb-4">
             Nice! You've just created a counterfactual (meaning it's not yet
@@ -163,7 +171,7 @@ function App() {
           <button
             className="bg-white text-black rounded-md px-2 py-1 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-200"
             onClick={handleDeployDelegator}
-            disabled={isDeploying || !delegator}
+            disabled={isDeploying || !delegatorSmartAccount}
           >
             Deploy Delegator Account
           </button>
@@ -173,10 +181,7 @@ function App() {
         <p className="mb-4">
           <a
             className="text-green-500"
-            href={getExplorerTransactionLink(
-              chain.id,
-              userOperationReceipt.receipt.transactionHash
-            )}
+            href={`https://sepolia.etherscan.io/tx/${userOperationReceipt.receipt.transactionHash}`}
             target="_blank"
           >
             Done!{" "}

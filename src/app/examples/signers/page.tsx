@@ -1,110 +1,107 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { http, toHex } from "viem";
+import {
+  Client,
+  createPublicClient,
+  Hex,
+  http,
+  toHex,
+  zeroAddress,
+} from "viem";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import { sepolia as chain } from "viem/chains";
 import {
   Implementation,
-  createDeleGatorClient,
-  PimlicoVerifyingPaymasterSponsor,
-  PimlicoGasFeeResolver,
-  createBundlerClient,
-  createRootDelegation,
-  createAction,
-  getExplorerAddressLink,
-  getExplorerTransactionLink,
-  type DeleGatorClient,
+  toMetaMaskSmartAccount,
+  type MetaMaskSmartAccount,
   type DelegationStruct,
-  type UserOperationV07,
+  createRootDelegation,
+  DelegationFramework,
+  SINGLE_DEFAULT_MODE,
+  getExplorerTransactionLink,
+  getExplorerAddressLink,
+  createExecution,
 } from "@codefi/delegator-core-viem";
+import {
+  createBundlerClient,
+  createPaymasterClient,
+  UserOperationReceipt,
+} from "viem/account-abstraction";
+import { createPimlicoClient } from "permissionless/clients/pimlico";
 import { randomBytes } from "crypto";
 import {
   type SignatoryFactoryName,
   useSelectedSignatory,
 } from "./useSelectedSignatory";
 import { WEB3AUTH_NETWORK_TYPE } from "@web3auth/base";
+import { formatJSON } from "@/app/utils";
 
-
-const PIMLICO_PAYMASTER_KEY = process.env.NEXT_PUBLIC_PAYMASTER_API_KEY!;
-const BUNDLER_URL = process.env.NEXT_PUBLIC_BUNDLER_URL!;
 const WEB3_AUTH_CLIENT_ID = process.env.NEXT_PUBLIC_WEB3_CLIENT_ID!;
 const WEB3_AUTH_NETWORK = process.env
   .NEXT_PUBLIC_WEB3_AUTH_NETWORK! as WEB3AUTH_NETWORK_TYPE;
+const BUNDLER_URL = process.env.NEXT_PUBLIC_BUNDLER_URL!;
 const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL!;
+// if this is undefined, the API_KEY must be configured to Enable verifying paymaster
+const PAYMASTER_POLICY_ID = process.env.NEXT_PUBLIC_PAYMASTER_POLICY_ID;
 
 const createSalt = () => toHex(randomBytes(8));
 
-const createCounterfactualDelegatorClient = () => {
+const createSmartAccount = (client: Client) => {
   const privateKey = generatePrivateKey();
   const owner = privateKeyToAccount(privateKey);
 
-  const viemClient = createDeleGatorClient({
-    transport: http(),
-    chain,
-    account: {
-      implementation: Implementation.Hybrid,
-      deployParams: [owner.address, [], [], []],
-      isAccountDeployed: false,
-      signatory: owner,
-      deploySalt: createSalt(),
-    },
+  const account = toMetaMaskSmartAccount({
+    client,
+    implementation: Implementation.Hybrid,
+    deployParams: [owner.address, [], [], []],
+    signatory: { account: owner },
+    deploySalt: createSalt(),
   });
 
-  return viemClient;
+  return account;
 };
 
-const formatJSON = (value: any) => {
-  if (value === null || value === undefined) {
-    return "NA";
-  }
-
-  return JSON.stringify(
-    value,
-    (_, v) => (typeof v === "bigint" ? `${v.toString()}n` : v),
-    2
-  );
-};
+type DeploymentStatus =
+  | "deployed"
+  | "counterfactual"
+  | "deployment in progress";
 
 function DeleGatorAccount({
-  client,
-  isDeploying,
+  account,
+  deploymentStatus,
 }: {
-  client: DeleGatorClient | undefined;
-  isDeploying: boolean;
+  account: MetaMaskSmartAccount<Implementation> | undefined;
+  deploymentStatus: DeploymentStatus;
 }) {
-  if (!client) {
+  if (!account) {
     return "NA";
   }
-  const status = client.account.isAccountDeployed
-    ? "deployed"
-    : isDeploying
-      ? "deployment in progress"
-      : "counterfactual";
 
-  const explorerUrl = getExplorerAddressLink(chain.id, client.account.address);
+  const explorerUrl = getExplorerAddressLink(chain.id, account.address);
 
   return (
     <>
-      {client.account.address} -{" "}
       <a href={explorerUrl} target="_blank">
-        {status}
+        {account.address} - {deploymentStatus}
       </a>
     </>
   );
 }
 
 function App() {
-  const [delegateClient, setDelegateClient] = useState<DeleGatorClient>();
-  const [delegatorClient, setDelegatorClient] = useState<DeleGatorClient>();
-
+  const [delegateAccount, setDelegateSmartAccount] =
+    useState<MetaMaskSmartAccount<Implementation>>();
+  const [delegatorAccount, setDelegatorAccount] =
+    useState<MetaMaskSmartAccount<Implementation>>();
   const [delegation, setDelegation] = useState<DelegationStruct>();
-  const [userOp, setUserOp] = useState<UserOperationV07>();
-  const [userOpExplorerUrl, setUserOpExplorerUrl] = useState<string>();
-  const [isDelegatorDeploymentStarted, setIsDelegatorDeploymentStarted] =
-    useState(false);
-  const [isDelegateDeploymentStarted, setIsDelegateDeploymentStarted] =
-    useState(false);
+  const [userOpReceipt, setUserOpReceipt] = useState<UserOperationReceipt>();
+  const [delegateDeploymentStatus, setDelegateDeploymentStatus] =
+    useState<DeploymentStatus>("counterfactual");
+  const [delegatorDeploymentStatus, setDelegatorDeploymentStatus] =
+    useState<DeploymentStatus>("counterfactual");
+  const [isRedeemingDelegation, setIsRedeemingDelegation] =
+    useState<boolean>(false);
 
   const { selectedSignatory, setSelectedSignatoryName, selectedSignatoryName } =
     useSelectedSignatory({
@@ -114,43 +111,56 @@ function App() {
       rpcUrl: RPC_URL,
     });
 
-  const bundler = createBundlerClient(BUNDLER_URL);
-  const paymaster = PimlicoVerifyingPaymasterSponsor({
-    pimlicoAPIKey: PIMLICO_PAYMASTER_KEY,
+  const client = createPublicClient({
+    chain,
+    transport: http(RPC_URL),
   });
-  const gasFeeResolver = PimlicoGasFeeResolver({
-    pimlicoAPIKey: PIMLICO_PAYMASTER_KEY,
-    inclusionSpeed: "fast",
+  const paymasterContext = PAYMASTER_POLICY_ID
+    ? {
+        sponsorshipPolicyId: PAYMASTER_POLICY_ID,
+      }
+    : undefined;
+
+  const pimlicoClient = createPimlicoClient({
+    transport: http(BUNDLER_URL),
+  });
+
+  const bundlerClient = createBundlerClient({
+    transport: http(BUNDLER_URL),
+    paymaster: createPaymasterClient({
+      transport: http(BUNDLER_URL),
+    }),
+    chain,
+    paymasterContext,
   });
 
   const isValidSignatorySelected =
     selectedSignatory && !selectedSignatory.isDisabled;
 
   const canDeployDelegatorAccount =
-    delegatorClient && !isDelegatorDeploymentStarted;
-  const canCreateDelegation = !!(delegateClient && delegatorClient);
-  const canSignDelegation = !!(delegatorClient && delegation);
+    delegatorAccount && delegatorDeploymentStatus === "counterfactual";
+  const canCreateDelegation = !!(delegateAccount && delegatorAccount);
+  const canSignDelegation = !!(delegatorAccount && delegation);
   const canRedeemDelegation = !!(
-    delegatorClient?.account.isAccountDeployed &&
-    delegateClient &&
+    delegatorDeploymentStatus === "deployed" &&
+    !isRedeemingDelegation &&
+    delegateAccount &&
     delegation?.signature !== undefined &&
     delegation?.signature !== "0x"
   );
   const canLogout = isValidSignatorySelected && selectedSignatory.canLogout();
 
+  // create the delegate account immediately on page load
   useEffect(() => {
-    const viemClient = createCounterfactualDelegatorClient();
-    setDelegateClient(viemClient);
+    createSmartAccount(client).then(setDelegateSmartAccount);
   }, []);
 
   const handleSignatoryChange = (ev: any) => {
     const signatoryName = ev.target.value as SignatoryFactoryName;
     setSelectedSignatoryName(signatoryName);
 
-    setDelegatorClient(undefined);
-    setIsDelegatorDeploymentStarted(false);
-    setUserOp(undefined);
-    setUserOpExplorerUrl(undefined);
+    setDelegatorAccount(undefined);
+    setUserOpReceipt(undefined);
     setDelegation(undefined);
   };
 
@@ -160,10 +170,8 @@ function App() {
     }
     await selectedSignatory!.logout!();
 
-    setDelegatorClient(undefined);
-    setIsDelegatorDeploymentStarted(false);
-    setUserOp(undefined);
-    setUserOpExplorerUrl(undefined);
+    setDelegatorAccount(undefined);
+    setUserOpReceipt(undefined);
     setDelegation(undefined);
   };
 
@@ -173,22 +181,16 @@ function App() {
     }
 
     const { owner, signatory } = await selectedSignatory.login();
-    const viemClient = createDeleGatorClient({
-      transport: http(),
-      chain,
-      account: {
-        implementation: Implementation.Hybrid,
-        deployParams: [owner, [], [], []],
-        isAccountDeployed: false,
-        signatory,
-        deploySalt: createSalt(),
-      },
+    const smartAccount = await toMetaMaskSmartAccount({
+      client,
+      implementation: Implementation.Hybrid,
+      deployParams: [owner, [], [], []],
+      deploySalt: createSalt(),
+      signatory,
     });
 
-    setDelegatorClient(viemClient);
-    setIsDelegatorDeploymentStarted(false);
-    setUserOp(undefined);
-    setUserOpExplorerUrl(undefined);
+    setDelegatorAccount(smartAccount);
+    setDelegatorDeploymentStatus("counterfactual");
     setDelegation(undefined);
   };
 
@@ -197,19 +199,25 @@ function App() {
       return;
     }
 
-    setIsDelegatorDeploymentStarted(true);
+    setDelegatorDeploymentStatus("deployment in progress");
 
-    const action = createAction("0x0000000000000000000000000000000000000000");
-    const unsponsoredUserOp = await delegatorClient.createExecuteUserOp(
-      action,
-      await gasFeeResolver.determineGasFee(chain)
-    );
+    const { fast: fee } = await pimlicoClient.getUserOperationGasPrice();
 
-    await sponsorAndSubmitUserOp(delegatorClient, unsponsoredUserOp);
+    const userOpHash = await bundlerClient.sendUserOperation({
+      account: delegatorAccount,
+      calls: [
+        {
+          to: zeroAddress,
+        },
+      ],
+      ...fee,
+    });
 
-    if (!delegatorClient.account.isAccountDeployed) {
-      setDelegatorClient(delegatorClient.toDeployedClient());
-    }
+    bundlerClient.waitForUserOperationReceipt({
+      hash: userOpHash,
+    });
+
+    setDelegatorDeploymentStatus("deployed");
   };
 
   const handleCreateDelegation = () => {
@@ -218,8 +226,9 @@ function App() {
     }
 
     const newDelegation = createRootDelegation(
-      delegateClient.account.address,
-      delegatorClient.account.address
+      delegateAccount.address,
+      delegatorAccount.address,
+      []
     );
 
     setDelegation(newDelegation);
@@ -230,42 +239,14 @@ function App() {
       return;
     }
 
-    const signedDelegation = await delegatorClient.signDelegation(delegation);
-    setDelegation(signedDelegation);
-  };
+    const signature = await delegatorAccount.signDelegation({
+      delegation,
+    });
 
-  const sponsorAndSubmitUserOp = async (
-    client: DeleGatorClient,
-    unsponsoredUserOp: UserOperationV07
-  ) => {
-    const sponsorship = await paymaster.getUserOperationSponsorship(
-      client.account.environment.EntryPoint,
-      chain,
-      unsponsoredUserOp
-    );
-
-    const unsignedUserOp = {
-      ...unsponsoredUserOp,
-      ...sponsorship,
-    };
-
-    const userOp = await client.signUserOp(unsignedUserOp);
-
-    const { result: hash } = await bundler.sendUserOp(
-      userOp,
-      client.account.environment.EntryPoint
-    );
-
-    const { result: userOperationReceipt } = await bundler.pollForReceipt(hash);
-
-    if (!userOperationReceipt.success) {
-      throw new Error(`UserOperation failed: ${userOperationReceipt.reason}`);
-    }
-
-    return {
-      userOperationReceipt,
-      userOp,
-    };
+    setDelegation({
+      ...delegation,
+      signature,
+    });
   };
 
   const handleRedeemDelegation = async () => {
@@ -273,36 +254,56 @@ function App() {
       return;
     }
 
-    const action = createAction(delegateClient.account.address);
+    setIsRedeemingDelegation(true);
 
-    const unsponsoredUserOp = await delegateClient.createRedeemDelegationUserOp(
-      [delegation],
-      action,
-      await gasFeeResolver.determineGasFee(chain)
+    const execution = createExecution();
+
+    const data = DelegationFramework.encode.redeemDelegations(
+      [[delegation]],
+      [SINGLE_DEFAULT_MODE],
+      [[execution]]
     );
-    setUserOp(unsponsoredUserOp);
 
-    if (!delegateClient.account.isAccountDeployed) {
-      // if the account is already deployed, isDelegateDeploymentStarted is already true anyway
-      setIsDelegateDeploymentStarted(true);
+    if (delegateDeploymentStatus === "counterfactual") {
+      setDelegateDeploymentStatus("deployment in progress");
     }
 
-    const { userOp, userOperationReceipt } = await sponsorAndSubmitUserOp(
-      delegateClient,
-      unsponsoredUserOp
-    );
+    const { fast: fee } = await pimlicoClient.getUserOperationGasPrice();
 
-    setUserOp(userOp);
+    let userOpHash: Hex;
 
-    setDelegateClient(delegateClient.toDeployedClient());
+    try {
+      userOpHash = await bundlerClient.sendUserOperation({
+        account: delegateAccount,
+        calls: [
+          {
+            to: delegateAccount.address,
+            data,
+          },
+        ],
+        ...fee,
+      });
+    } catch (error) {
+      setIsRedeemingDelegation(false);
+      if (delegateDeploymentStatus === "deployment in progress") {
+        setDelegateDeploymentStatus("counterfactual");
+      }
+      throw error;
+    }
 
-    const explorerUrl = getExplorerTransactionLink(
-      chain.id,
-      userOperationReceipt.receipt.transactionHash
-    );
+    const userOperationReceipt =
+      await bundlerClient.waitForUserOperationReceipt({ hash: userOpHash });
 
-    setUserOpExplorerUrl(explorerUrl);
+    setUserOpReceipt(userOperationReceipt);
+
+    setDelegateDeploymentStatus("deployed");
+
+    setIsRedeemingDelegation(false);
   };
+
+  const userOpExplorerUrl =
+    userOpReceipt &&
+    getExplorerTransactionLink(chain.id, userOpReceipt.receipt.transactionHash);
 
   return (
     <div>
@@ -329,7 +330,11 @@ function App() {
         Operation, where it is settled on-chain.
       </p>
       <label>Signatory:</label>{" "}
-      <select onChange={handleSignatoryChange} value={selectedSignatoryName} className="bg-white text-black rounded-md px-2 py-1">
+      <select
+        onChange={handleSignatoryChange}
+        value={selectedSignatoryName}
+        className="bg-white text-black rounded-md px-2 py-1"
+      >
         <option value="burnerSignatoryFactory">Burner private key</option>
         <option value="injectedProviderSignatoryFactory">
           Injected provider
@@ -338,8 +343,8 @@ function App() {
       </select>
       <br />
       {canLogout && (
-        <button 
-          onClick={handleLogout} 
+        <button
+          onClick={handleLogout}
           className="bg-white text-black rounded-md px-2 py-1 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-200"
           disabled={!canLogout}
         >
@@ -365,26 +370,26 @@ function App() {
       <pre style={{ overflow: "auto" }}>
         Delegate:{" "}
         <DeleGatorAccount
-          client={delegateClient}
-          isDeploying={isDelegateDeploymentStarted}
+          account={delegateAccount}
+          deploymentStatus={delegateDeploymentStatus}
         />
         <br />
         Delegator:{" "}
         <DeleGatorAccount
-          client={delegatorClient}
-          isDeploying={isDelegatorDeploymentStarted}
+          account={delegatorAccount}
+          deploymentStatus={delegatorDeploymentStatus}
         />
       </pre>
       <br />
-      <button 
-        onClick={handleCreateDelegation} 
+      <button
+        onClick={handleCreateDelegation}
         disabled={!canCreateDelegation}
         className="bg-white text-black rounded-md px-2 py-1 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-200"
       >
         Create Delegation
       </button>{" "}
-      <button 
-        onClick={handleSignDelegation} 
+      <button
+        onClick={handleSignDelegation}
         disabled={!canSignDelegation}
         className="bg-white text-black rounded-md px-2 py-1 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-200"
       >
@@ -392,20 +397,27 @@ function App() {
       </button>
       <h3>Delegation:</h3>
       <pre style={{ overflow: "auto" }}>{formatJSON(delegation)}</pre>
-      <button 
-        onClick={handleRedeemDelegation} 
+      <button
+        onClick={handleRedeemDelegation}
         disabled={!canRedeemDelegation}
         className="bg-white text-black rounded-md px-2 py-1 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-200"
       >
         Redeem Delegation
       </button>
-      <h3>UserOp:</h3>
+      {isRedeemingDelegation && (
+        <span className="ml-2 inline-block animate-spin">🐊</span>
+      )}
+      <h3>UserOp receipt:</h3>
       {userOpExplorerUrl && (
         <a href={userOpExplorerUrl} target="_blank">
-          view transaction
+          View transaction
         </a>
       )}
-      <pre style={{ overflow: "auto" }}>{formatJSON(userOp)}</pre>
+      {userOpReceipt && (
+        <pre style={{ overflow: "auto", maxHeight: "200px" }}>
+          {formatJSON(userOpReceipt)}
+        </pre>
+      )}
     </div>
   );
 }

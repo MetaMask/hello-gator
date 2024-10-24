@@ -11,11 +11,11 @@ export const createBurnerSignatoryFactory: SignatoryFactoryConfigurator = (
   return {
     login: async () => {
       const privateKey = generatePrivateKey();
-      const owner = privateKeyToAccount(privateKey);
+      const account = privateKeyToAccount(privateKey);
 
       return {
-        signatory: owner,
-        owner: owner.address,
+        signatory: { account },
+        owner: account.address,
       };
     },
     canLogout: () => false,
