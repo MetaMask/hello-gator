@@ -45,7 +45,7 @@ export const createWeb3AuthSignatoryFactory: SignatoryFactoryConfigurator = (
       method: "eth_accounts",
     })) as Address[];
 
-    const signatory = createWalletClient({
+    const walletClient = createWalletClient({
       chain,
       transport: custom(provider),
       account: owner,
@@ -53,7 +53,7 @@ export const createWeb3AuthSignatoryFactory: SignatoryFactoryConfigurator = (
 
     return {
       owner,
-      signatory,
+      signatory: { walletClient },
     };
   };
 

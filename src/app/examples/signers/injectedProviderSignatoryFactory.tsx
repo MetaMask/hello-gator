@@ -32,7 +32,7 @@ export const createInjectedProviderSignatoryFactory: SignatoryFactoryConfigurato
         method: "eth_requestAccounts",
       })) as Address[];
 
-      const signatory = createWalletClient({
+      const walletClient = createWalletClient({
         chain,
         transport: custom(provider),
         account: owner,
@@ -40,7 +40,7 @@ export const createInjectedProviderSignatoryFactory: SignatoryFactoryConfigurato
 
       return {
         owner,
-        signatory,
+        signatory: { walletClient},
       };
     };
 

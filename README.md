@@ -1,6 +1,6 @@
 # Hello Gator 🐊
 
-Easily get up-to-speed with (and integrate) the MetaMask Delegation Toolkit with this demonstration. It includes examples for all the core elements including Delegator Account (ERC-4337) creation, sending User Operations, and the Delegation lifecycle. Example code is provided utilising the DeleGator Core [Viem](https://viem.sh/) client.
+Easily get up-to-speed with (and integrate) the MetaMask Delegation Toolkit with this demonstration. It includes examples for all the core elements including Delegator Account (ERC-4337) creation, sending User Operations, and the Delegation lifecycle. Example code is provided utilising the Delegator Smart Account.
 
 Note: this template is also designed to complement the [documentation](https://docs.gator.metamask.io).
 

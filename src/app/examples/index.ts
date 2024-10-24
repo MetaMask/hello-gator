@@ -1,24 +1,14 @@
-const examples = [
-  // {
-  //   "name": "Delegation Lifecycle",
-  //   "path": "delegations",
-  //   "description": "Create, sign, and redeem delegations."
-  // },
+const examples = Object.freeze([
   {
     "name": "Custom Signers",
     "path": "signers",
     "description": "See the various signer options in action."
+  },  
+  {
+    "name": "Enable and Disable Delegations",
+    "path": "toggle-delegation",
+    "description": "Toggle the ability to redeem a delegation."
   },
-  // {
-  //   "name": "Storage API",
-  //   "path": "storage",
-  //   "description": "Use the Delegation Storage client to store and retrieve delegations."
-  // },
-  // {
-  //   "name": "Revoke Delegations",
-  //   "path": "revoke",
-  //   "description": "See how to revoke existing delegations."
-  // },
-]
+]);
 
 export default examples;
