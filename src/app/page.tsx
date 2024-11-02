@@ -84,6 +84,19 @@ function App() {
     // as there is no standard way to do this
     const { fast: fees } = await pimlicoClient.getUserOperationGasPrice();
 
+    const gasEstimate = await bundlerClient.estimateUserOperationGas({
+      account: delegatorSmartAccount,
+      calls: [
+        {
+          to: zeroAddress,
+        },
+      ],
+      maxFeePerGas: 1n,
+      maxPriorityFeePerGas: 1n,
+    });
+
+    console.log({ gasEstimate });
+
     const userOpHash = await bundlerClient.sendUserOperation({
       account: delegatorSmartAccount,
       calls: [
