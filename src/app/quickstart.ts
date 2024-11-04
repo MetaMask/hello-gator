@@ -16,7 +16,7 @@ import {
   createSalt,
   publicClient,
   getFeePerGas,
-} from "../shared";
+} from "./examples/shared";
 import { type Address, type Hex, isAddressEqual, zeroAddress } from "viem";
 
 /**
@@ -134,7 +134,7 @@ export const executeOnBehalfOfDelegator = async (
     ...feePerGas,
   });
 
-  // This could be in a separate function, for a more responsive user operation,
+  // This could be in a separate function, for a more responsive user experience,
   // but we leave it here for simplicity.
   return await bundlerClient.waitForUserOperationReceipt({
     hash: userOperationHash,

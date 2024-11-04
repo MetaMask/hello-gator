@@ -13,10 +13,11 @@ const Header = () => {
         }}
       >
         <option>Select example</option>
-        <option value="/">Home</option>
         {examples.map((e, i) => {
           return (
-            <option value={`/examples/${e.path}`} key={i}>{e.name}</option>
+            <option value={`/${e.path}`} key={i}>
+              {e.name}
+            </option>
           );
         })}
       </select>
@@ -24,9 +25,7 @@ const Header = () => {
   }
 
   return (
-    <div
-      className="w-full border-b border-gray-600"
-    >
+    <div className="w-full border-b border-gray-600">
       <div className="mx-auto w-full md:w-1/2 my-10">
         <div className="flex flex-col md:flex-row justify-between items-center">
           <h1 className="text-4xl font-bold mb-4 md:mb-0">
