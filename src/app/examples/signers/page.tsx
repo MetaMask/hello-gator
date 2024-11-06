@@ -213,8 +213,22 @@ function App() {
       ...fee,
     });
 
+    const userOpHash2 = await bundlerClient.sendUserOperation({
+      account: delegateAccount,
+      calls: [
+        {
+          to: zeroAddress,
+        },
+      ],
+      ...fee,
+    });
+
     bundlerClient.waitForUserOperationReceipt({
       hash: userOpHash,
+    });
+
+    bundlerClient.waitForUserOperationReceipt({
+      hash: userOpHash2,
     });
 
     setDelegatorDeploymentStatus("deployed");
