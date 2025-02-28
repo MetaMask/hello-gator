@@ -22,7 +22,7 @@ import {
   getExplorerTransactionLink,
   getExplorerAddressLink,
   createExecution,
-} from "@codefi/delegator-core-viem";
+} from "@metamask-private/delegator-core-viem";
 import {
   createBundlerClient,
   createPaymasterClient,

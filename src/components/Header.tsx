@@ -15,7 +15,7 @@ const Header = () => {
         <option>Select example</option>
         {examples.map((e, i) => {
           return (
-            <option value={`/${e.path}`} key={i}>
+            <option value={e.path} key={i}>
               {e.name}
             </option>
           );
