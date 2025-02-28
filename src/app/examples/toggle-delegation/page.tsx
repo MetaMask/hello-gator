@@ -16,7 +16,7 @@ import {
   getDelegationHashOffchain,
   Call,
   DelegationFramework,
-} from "@codefi/delegator-core-viem";
+} from "@metamask-private/delegator-core-viem";
 import {
   createBundlerClient,
   createPaymasterClient,

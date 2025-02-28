@@ -9,7 +9,7 @@ import {
   MetaMaskSmartAccount,
   SINGLE_DEFAULT_MODE,
   toMetaMaskSmartAccount,
-} from "@codefi/delegator-core-viem";
+} from "@metamask-private/delegator-core-viem";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import {
   bundlerClient,
@@ -115,8 +115,10 @@ export const executeOnBehalfOfDelegator = async (
     },
   ];
 
-  // If the delegator account is not deployed, it must be deployed before
-  // redeeming the delegation.
+  // The delegate is submitting the user operation, so may be deployed via initcode. If the delegator
+  // is not yet on-chain, it must be deployed before redeeming the delegation. If factory
+  // args are provided, an additional call is inserted into the calls array that is encoded
+  // for the user operation.
   if (delegatorFactoryArgs) {
     const { factory, factoryData } = delegatorFactoryArgs;
 

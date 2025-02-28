@@ -14,7 +14,7 @@ import {
   MetaMaskSmartAccount,
   getExplorerAddressLink,
   getExplorerTransactionLink,
-} from "@codefi/delegator-core-viem";
+} from "@metamask-private/delegator-core-viem";
 import { chain, getExplorerUserOperationLink } from "./examples/shared";
 import { UserOperationReceipt } from "viem/account-abstraction";
 
@@ -308,7 +308,7 @@ function App() {
         {examples.map((e, i) => {
           return (
             <a
-              href={`/examples/${e.path}`}
+              href={e.path}
               className="text-decoration-none bg-[rgb(36,41,46)] w-full sm:w-[calc(50%-0.5rem)] lg:w-[calc(33.333%-0.667rem)] px-5 py-2.5 text-white hover:bg-[rgb(41,46,51)] hover:text-gray-300 transition duration-200 transform hover:scale-105"
               key={i}
             >

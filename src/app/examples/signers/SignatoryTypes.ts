@@ -1,4 +1,4 @@
-import { HybridSignatoryConfig } from "@codefi/delegator-core-viem";
+import { HybridSignatoryConfig } from "@metamask-private/delegator-core-viem";
 import { OPENLOGIN_NETWORK_TYPE } from "@web3auth/base";
 import { Address, Chain } from "viem";
 
